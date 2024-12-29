@@ -5,9 +5,7 @@ pipeline {
         DOCKER_IMAGE = 'php-app' // Docker image name
         DOCKER_CONTAINER = 'php-app-container' // Docker container name
         APP_PORT = '8082' // External port for the app
-        SEMGREP_TOKEN = '7c820b8783e581bd98899f071aed85020cdf72dd1cced16e06c194d68a699be8'
-        GRAFANA_API_TOKEN = 'glsa_IHsnKKyhuHjmiHKHsF822IjlxVvZ3Ofr_ae4155b8'
-        DOJO_URL = 'http://localhost:8081'
+        DOJO_URL = 'http://localhost:8081' // Dojo URL remains unchanged
     }
 
     stages {
@@ -21,9 +19,11 @@ pipeline {
         stage('Static Code Analysis with Semgrep') {
             steps {
                 echo 'Running Semgrep for static code analysis...'
-                sh '''
-                semgrep --config auto --json --output semgrep-results.json
-                '''
+                withCredentials([string(credentialsId: 'semgrep-token', variable: 'SEMGREP_TOKEN')]) {
+                    sh '''
+                    semgrep --config auto --json --output semgrep-results.json
+                    '''
+                }
             }
             post {
                 always {
@@ -36,10 +36,12 @@ pipeline {
         stage('Dependency Scanning with Snyk') {
             steps {
                 echo 'Running Snyk to scan dependencies...'
-                sh '''
-                snyk auth ${SEMGREP_TOKEN}
-                snyk test --json > snyk-results.json
-                '''
+                withCredentials([string(credentialsId: 'semgrep-token', variable: 'SEMGREP_TOKEN')]) {
+                    sh '''
+                    snyk auth ${SEMGREP_TOKEN}
+                    snyk test --json > snyk-results.json
+                    '''
+                }
             }
             post {
                 always {
@@ -100,34 +102,38 @@ pipeline {
         stage('Upload Results to DefectDojo') {
             steps {
                 echo 'Uploading results to DefectDojo...'
-                sh '''
-                curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
-                     -H "Authorization: Token ${SEMGREP_TOKEN}" \
-                     -H "Content-Type: application/json" \
-                     -d @semgrep-results.json
+                withCredentials([string(credentialsId: 'semgrep-token', variable: 'SEMGREP_TOKEN')]) {
+                    sh '''
+                    curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
+                         -H "Authorization: Token ${SEMGREP_TOKEN}" \
+                         -H "Content-Type: application/json" \
+                         -d @semgrep-results.json
 
-                curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
-                     -H "Authorization: Token ${SEMGREP_TOKEN}" \
-                     -H "Content-Type: application/json" \
-                     -d @snyk-results.json
+                    curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
+                         -H "Authorization: Token ${SEMGREP_TOKEN}" \
+                         -H "Content-Type: application/json" \
+                         -d @snyk-results.json
 
-                curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
-                     -H "Authorization: Token ${SEMGREP_TOKEN}" \
-                     -H "Content-Type: application/json" \
-                     -d @zap-report.html
-                '''
+                    curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
+                         -H "Authorization: Token ${SEMGREP_TOKEN}" \
+                         -H "Content-Type: application/json" \
+                         -d @zap-report.html
+                    '''
+                }
             }
         }
 
         stage('Monitoring and Reporting with Grafana') {
             steps {
                 echo 'Sending metrics to Grafana...'
-                sh '''
-                curl -X POST http://localhost:3000/api/annotations \
-                     -H "Authorization: Bearer ${GRAFANA_API_TOKEN}" \
-                     -H "Content-Type: application/json" \
-                     -d '{"text":"Security Scan Completed","tags":["jenkins","security"],"time":$(date +%s000)}'
-                '''
+                withCredentials([string(credentialsId: 'grafana-api-token', variable: 'GRAFANA_API_TOKEN')]) {
+                    sh '''
+                    curl -X POST http://localhost:3000/api/annotations \
+                         -H "Authorization: Bearer ${GRAFANA_API_TOKEN}" \
+                         -H "Content-Type: application/json" \
+                         -d '{"text":"Security Scan Completed","tags":["jenkins","security"],"time":$(date +%s000)}'
+                    '''
+                }
             }
         }
     }

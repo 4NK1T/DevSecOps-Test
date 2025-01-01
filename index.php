@@ -29,7 +29,7 @@ if (isset($_POST["submit"])) {
    $dbhost = 'localhost';
    $dbuser = 'root';
    $dbpass = '';
-   $conn = mysqli_connect($dbhost, $dbuser, $dbpass);
+   $conn = mysqli_connect($dbhost, $dbuser, $dbpass); //randomcomment
 
    if(! $conn ) {
       die('Could not connect: ' . mysqli_error( $conn));

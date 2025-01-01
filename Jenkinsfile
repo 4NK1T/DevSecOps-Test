@@ -2,10 +2,8 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = 'php-app' // Docker image name
-        DOCKER_CONTAINER = 'php-app-container' // Docker container name
-        APP_PORT = '8082' // External port for the app
-        DOJO_URL = 'http://localhost:8081' // Dojo URL remains unchanged
+        DOJO_URL = 'http://localhost:8080' // DefectDojo URL
+        DOJO_API_KEY = '006ec9ad0e9eaf04b21212ecb12268dd9da9c9cf' // DefectDojo API key
     }
 
     stages {
@@ -16,85 +14,28 @@ pipeline {
             }
         }
 
-        stage('Static Code Analysis with Semgrep') {
+        stage('Dependency-Check (Jenkins Plugin)') {
             steps {
-                echo 'Running Semgrep for static code analysis...'
-                withCredentials([string(credentialsId: 'semgrep-token', variable: 'SEMGREP_TOKEN')]) {
-                    sh '''
-                    semgrep --config auto --json --output semgrep-results.json
-                    '''
-                }
+                echo 'Running Dependency-Check using Jenkins plugin...'
+                dependencyCheck additionalArguments: '--format JSON', odcInstallation: 'Default'
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'semgrep-results.json', allowEmptyArchive: true
-                    echo 'Semgrep analysis completed. Results archived.'
+                    archiveArtifacts artifacts: '**/dependency-check-report.json', allowEmptyArchive: true
+                    echo 'Dependency-Check completed. Results archived.'
                 }
             }
         }
 
-        stage('Dependency Scanning with Snyk') {
+        stage('Snyk (Jenkins Plugin)') {
             steps {
-                echo 'Running Snyk to scan dependencies...'
-                withCredentials([string(credentialsId: 'semgrep-token', variable: 'SEMGREP_TOKEN')]) {
-                    sh '''
-                    snyk auth ${SEMGREP_TOKEN}
-                    snyk test --json > snyk-results.json
-                    '''
-                }
+                echo 'Running Snyk scan using Jenkins plugin...'
+                snykSecurity analysisType: 'test', snykInstallation: 'Default Snyk CLI'
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'snyk-results.json', allowEmptyArchive: true
-                    echo 'Snyk dependency scan completed. Results archived.'
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                echo 'Building Docker image...'
-                sh '''
-                docker build -t ${DOCKER_IMAGE} .
-                '''
-            }
-        }
-
-        stage('Scan Docker Image with Trivy') {
-            steps {
-                echo 'Scanning Docker image with Trivy...'
-                sh '''
-                trivy image --exit-code 0 --severity HIGH ${DOCKER_IMAGE}
-                trivy image --exit-code 1 --severity CRITICAL ${DOCKER_IMAGE}
-                '''
-            }
-        }
-
-        stage('Run Docker Container') {
-            steps {
-                echo 'Running Docker container...'
-                sh '''
-                docker stop ${DOCKER_CONTAINER} || true
-                docker rm ${DOCKER_CONTAINER} || true
-                docker run -d -p ${APP_PORT}:80 --name ${DOCKER_CONTAINER} ${DOCKER_IMAGE}
-                '''
-            }
-        }
-
-        stage('Dynamic Application Security Testing (DAST) with OWASP ZAP') {
-            steps {
-                echo 'Running OWASP ZAP scan on http://localhost:${APP_PORT}...'
-                sh '''
-                zap-cli start --start-options '-config api.disablekey=true' -d
-                zap-cli quick-scan http://localhost:${APP_PORT}
-                zap-cli report -o zap-report.html -f html
-                zap-cli stop
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'zap-report.html', allowEmptyArchive: true
-                    echo 'OWASP ZAP scan completed. Report archived.'
+                    archiveArtifacts artifacts: '**/snyk-report.json', allowEmptyArchive: true
+                    echo 'Snyk scan completed. Results archived.'
                 }
             }
         }
@@ -102,36 +43,21 @@ pipeline {
         stage('Upload Results to DefectDojo') {
             steps {
                 echo 'Uploading results to DefectDojo...'
-                withCredentials([string(credentialsId: 'semgrep-token', variable: 'SEMGREP_TOKEN')]) {
+                script {
+                    // Upload Dependency-Check results
                     sh '''
                     curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
-                         -H "Authorization: Token ${SEMGREP_TOKEN}" \
+                         -H "Authorization: Token ${DOJO_API_KEY}" \
                          -H "Content-Type: application/json" \
-                         -d @semgrep-results.json
-
-                    curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
-                         -H "Authorization: Token ${SEMGREP_TOKEN}" \
-                         -H "Content-Type: application/json" \
-                         -d @snyk-results.json
-
-                    curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
-                         -H "Authorization: Token ${SEMGREP_TOKEN}" \
-                         -H "Content-Type: application/json" \
-                         -d @zap-report.html
+                         -d @dependency-check-report.json
                     '''
-                }
-            }
-        }
 
-        stage('Monitoring and Reporting with Grafana') {
-            steps {
-                echo 'Sending metrics to Grafana...'
-                withCredentials([string(credentialsId: 'grafana-api-token', variable: 'GRAFANA_API_TOKEN')]) {
+                    // Upload Snyk results
                     sh '''
-                    curl -X POST http://localhost:3000/api/annotations \
-                         -H "Authorization: Bearer ${GRAFANA_API_TOKEN}" \
+                    curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
+                         -H "Authorization: Token ${DOJO_API_KEY}" \
                          -H "Content-Type: application/json" \
-                         -d '{"text":"Security Scan Completed","tags":["jenkins","security"],"time":$(date +%s000)}'
+                         -d @snyk-report.json
                     '''
                 }
             }
@@ -140,11 +66,7 @@ pipeline {
 
     post {
         always {
-            echo 'Pipeline completed. Cleaning up resources...'
-            sh '''
-            docker stop ${DOCKER_CONTAINER} || true
-            docker rm ${DOCKER_CONTAINER} || true
-            '''
+            echo 'Pipeline execution completed.'
         }
     }
 }

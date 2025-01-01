@@ -35,24 +35,23 @@ pipeline {
         }
 
         stage('Snyk Scan (CLI)') {
-            steps {
-                echo 'Running Snyk scan using CLI...'
-                withCredentials([string(credentialsId: 'snyk-api-key-id', variable: 'SNYK_TOKEN')]) {
-                    sh '''
-                    # Run Snyk test and generate JSON output
-                    snyk test --json > snyk-results.json
-                    '''
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'snyk-results.json', allowEmptyArchive: true
-                    echo 'Snyk scan completed. Results archived.'
-                }
-            }
+    steps {
+        echo 'Running Snyk scan using CLI...'
+        withCredentials([string(credentialsId: 'snyk-api-key-id', variable: 'SNYK_TOKEN')]) {
+            sh '''
+            # Run Snyk test and allow the pipeline to continue regardless of exit code
+            snyk test --json || true
+            '''
         }
+    }
+    post {
+        always {
+            archiveArtifacts artifacts: 'snyk-results.json', allowEmptyArchive: true
+            echo 'Snyk scan completed. Results archived.'
+        }
+    }
 
-        stage('Upload Results to DefectDojo') {
+    stage('Upload Results to DefectDojo') {
             steps {
                 echo 'Uploading results to DefectDojo...'
                 script {

@@ -4,6 +4,7 @@ pipeline {
     environment {
         DOJO_URL = 'http://localhost:8080' // DefectDojo URL
         DOJO_API_KEY = '006ec9ad0e9eaf04b21212ecb12268dd9da9c9cf' // DefectDojo API key
+        DEPENDENCY_CHECK_PATH = '/opt/dependency-check/bin/dependency-check.sh' // Path to Dependency-Check CLI
     }
 
     stages {
@@ -14,14 +15,20 @@ pipeline {
             }
         }
 
-        stage('Dependency-Check (Jenkins Plugin)') {
+        stage('Dependency-Check (CLI)') {
             steps {
-                echo 'Running Dependency-Check using Jenkins plugin...'
-                dependencyCheck additionalArguments: '--format JSON', odcInstallation: 'Default'
+                echo 'Running Dependency-Check using CLI...'
+                sh '''
+                ${DEPENDENCY_CHECK_PATH} \
+                    --project "DevSecOps-Test" \
+                    --scan . \
+                    --format JSON \
+                    --out dependency-check-report.json
+                '''
             }
             post {
                 always {
-                    archiveArtifacts artifacts: '**/dependency-check-report.json', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'dependency-check-report.json', allowEmptyArchive: true
                     echo 'Dependency-Check completed. Results archived.'
                 }
             }
@@ -31,10 +38,8 @@ pipeline {
             steps {
                 echo 'Running Snyk scan using CLI...'
                 sh '''
-                # Authenticate Snyk (if not already authenticated globally)
                 snyk auth || true
 
-                # Run Snyk test and generate JSON output
                 snyk test --json > snyk-results.json
                 '''
             }

@@ -27,14 +27,20 @@ pipeline {
             }
         }
 
-        stage('Snyk (Jenkins Plugin)') {
+        stage('Snyk Scan (CLI)') {
             steps {
-                echo 'Running Snyk scan using Jenkins plugin...'
-                snykSecurity analysisType: 'test', snykInstallation: 'Default Snyk CLI'
+                echo 'Running Snyk scan using CLI...'
+                sh '''
+                # Authenticate Snyk (if not already authenticated globally)
+                snyk auth || true
+
+                # Run Snyk test and generate JSON output
+                snyk test --json > snyk-results.json
+                '''
             }
             post {
                 always {
-                    archiveArtifacts artifacts: '**/snyk-report.json', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'snyk-results.json', allowEmptyArchive: true
                     echo 'Snyk scan completed. Results archived.'
                 }
             }
@@ -57,7 +63,7 @@ pipeline {
                     curl -X POST "${DOJO_URL}/api/v2/import-scan/" \
                          -H "Authorization: Token ${DOJO_API_KEY}" \
                          -H "Content-Type: application/json" \
-                         -d @snyk-report.json
+                         -d @snyk-results.json
                     '''
                 }
             }

@@ -37,11 +37,12 @@ pipeline {
         stage('Snyk Scan (CLI)') {
             steps {
                 echo 'Running Snyk scan using CLI...'
-                sh '''
-                snyk auth || true
-
-                snyk test --json > snyk-results.json
-                '''
+                withCredentials([string(credentialsId: 'snyk-api-key-id', variable: 'SNYK_TOKEN')]) {
+                    sh '''
+                    # Run Snyk test and generate JSON output
+                    snyk test --json > snyk-results.json
+                    '''
+                }
             }
             post {
                 always {
